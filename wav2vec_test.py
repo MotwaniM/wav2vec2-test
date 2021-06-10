@@ -23,32 +23,46 @@ import pandas as pd
 # sf.write("Data/test.wav",wav_to_save, 16000)
 
 transcription_truth = ("NEAR THE FIRE AND THE ORNAMENTS FRED BROUGHT HOME FROM INDIA ON THE MANTLE BOARD").split()
-
-y, s = librosa.load("Data/test.wav", sr=16000)
-# for i in np.arange(0.01,0.1,0.01):
-#     noise = np.random.normal(0,i * np.max(y),len(y))
-#     noisy_wav = np.add(y, noise)
-#     f_name = "Data/noise_"+ str(round(i,2)) +"_test.wav"
-#     sf.write(f_name,noisy_wav, 16000)
+df = pd.read_csv("Results/test.csv")
 
 #load model and tokenizer
 tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base-960h")
 model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
 
-# # tokenize
-input_values = tokenizer(y, return_tensors="pt", padding="longest").input_values  # Batch size 1
+f_name = "test.wav"
+f_dir = "Data/"
+y, s = librosa.load((f_dir + f_name), sr=16000)
+acc_arr = []
+noise = np.arange(0,0.1,0.01)
 
-# retrieve logits
-logits = model(input_values).logits
+for i in noise:
+    noisy_wav = np.add(y, np.random.normal(0,i * np.max(y),len(y)))
 
-# take argmax and decode
-predicted_ids = torch.argmax(logits, dim=-1)
-transcription = tokenizer.batch_decode(predicted_ids)
-transcription = transcription[0].split()
+    input_values = tokenizer(noisy_wav, return_tensors="pt", padding="longest").input_values  # Batch size 1
+    logits = model(input_values).logits
 
-print("Truth:", Counter(transcription_truth))
-print("Predicted: ", Counter(transcription))
+    predicted_ids = torch.argmax(logits, dim=-1)
+    transcription = tokenizer.batch_decode(predicted_ids)
+    transcription = transcription[0].split()
 
-x = pd.DataFrame(np.array([Counter(transcription_truth).keys(), Counter(transcription_truth).items()]), columns=['word','count'])
+    truth_df = pd.DataFrame.from_dict(Counter(transcription_truth), orient='index').reset_index()
+    truth_df = truth_df.rename(columns={"index": "index", 0: "truth_count"})
 
-print(x)
+    pred_df = pd.DataFrame.from_dict(Counter(transcription), orient='index').reset_index()
+    pred_df = pred_df.rename(columns={"index": "index", 0: "pred_count"})
+
+    final_df = truth_df.merge(pred_df, how = "left", on = "index")
+    final_df['pred_count'] = final_df['pred_count'].fillna(0)
+
+    final_df['noise'] = i
+    df = pd.concat([df,final_df])
+
+    acc = (final_df['pred_count'].sum())/(final_df['truth_count'].sum())
+    print(acc)
+    acc_arr.append(acc)
+
+plt.plot(noise, acc_arr, "r.")
+plt.show()
+
+    # final_name = "Results/" + f_name[0:-4] + ".csv"
+    # final_df.to_csv(final_name, index=False)
