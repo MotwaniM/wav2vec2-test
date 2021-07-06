@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import librosa
 from collections import Counter
 import pandas as pd
+import wav2vec_functions
+
 
 np.random.seed(1)
 word_df = pd.read_csv("Results/word_results.csv")
@@ -23,18 +25,24 @@ for index,f_name in enumerate(inputs_df["file name"]):
 
     print("processing file: ", f_name)
     y, s = librosa.load((f_dir + f_name), sr=16000)
+    audio = wav2vec_functions.split_file(y, s)
+
     acc_arr = []
     if f_name not in np.asarray(word_df['f_name']) and f_name not in np.asarray(accuracy_df['f_name']):
         for i in noise:
-            print("processing noise", str(i))
-            noisy_wav = np.add(y, np.random.normal(0, i * np.max(y), len(y)))
-            input_values = tokenizer(noisy_wav, return_tensors="pt", padding="longest").input_values  # Batch size 1
-            logits = model(input_values).logits
+            print("\nprocessing noise", str(i))
+            transcription = [""]
+            for chunk in audio:
 
-            predicted_ids = torch.argmax(logits, dim=-1)
-            transcription = tokenizer.batch_decode(predicted_ids)
+                noisy_wav = np.add(chunk, np.random.normal(0, i * np.max(chunk), len(chunk)))
+                input_values = tokenizer(noisy_wav, return_tensors="pt", padding="longest").input_values  # Batch size 1
+                logits = model(input_values).logits
+
+                predicted_ids = torch.argmax(logits, dim=-1)
+                prediction = tokenizer.batch_decode(predicted_ids)
+                transcription[0] += prediction[0]
+
             transcription = transcription[0].split()
-
             t = np.asarray(inputs_df.iloc[[index]]["Transcription"])[0].split()
 
             truth_df = pd.DataFrame.from_dict(Counter(t), orient='index').reset_index()
@@ -52,7 +60,6 @@ for index,f_name in enumerate(inputs_df["file name"]):
             word_df = pd.concat([word_df,entry_df])
             acc = (entry_df['pred_count'].sum())/(entry_df['truth_count'].sum())
             acc_arr.append(acc)
-
         # Add in code to append accuracies by file to accuracy_df
         fname_list = np.repeat(f_name, len(acc_arr))
 
@@ -62,10 +69,8 @@ for index,f_name in enumerate(inputs_df["file name"]):
                                        'accuracy' : acc_arr})
 
         accuracy_df = pd.concat([accuracy_df, accuracy_entry])
-
         word_df.to_csv("Results/word_results.csv", index=False)
         accuracy_df.to_csv("Results/accuracy_results.csv", index=False)
-
     else:
         print("File", f_name,"has already been processed")
         continue
